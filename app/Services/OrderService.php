@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Conversation;
 use App\Models\Customer;
 use App\Models\Order;
+use App\Services\AiOrderParserService;
 
 class OrderService
 {
@@ -40,6 +41,43 @@ class OrderService
             'delivery_charge' => 60,
             'total'           => 0,
             'notes'           => 'Auto-created from chat — needs review',
+        ]);
+    }
+
+    /**
+     * Create a fully-structured order using AI-parsed data.
+     * Falls back to createDraftFromText if parsing returns null.
+     */
+    public function createFromAiParsed(string $text, Customer $customer, Conversation $conversation): Order
+    {
+        $parser = app(AiOrderParserService::class);
+        $parsed = $parser->parse($text);
+
+        if (! $parsed || empty($parsed['items'])) {
+            return $this->createDraftFromText($text, $customer, $conversation);
+        }
+
+        // Enrich items with prices from settings (Phase 3+: from products table)
+        $items    = $parsed['items'];
+        $subtotal = collect($items)->sum(fn ($i) => ($i['qty'] ?? 1) * ($i['unit_price'] ?? 0));
+        $delivery = (float) \App\Models\BusinessSetting::get('delivery_charge', 60);
+
+        // Update customer phone if extracted
+        if (! empty($parsed['phone']) && ! $customer->phone) {
+            $customer->update(['phone' => $parsed['phone']]);
+        }
+
+        return Order::create([
+            'order_number'     => Order::generateNumber(),
+            'customer_id'      => $customer->id,
+            'conversation_id'  => $conversation->id,
+            'status'           => 'pending',
+            'items'            => $items,
+            'subtotal'         => $subtotal,
+            'delivery_charge'  => $delivery,
+            'total'            => $subtotal + $delivery,
+            'delivery_address' => $parsed['address'] ?? null,
+            'notes'            => 'AI-parsed from: ' . $parsed['raw_text'],
         ]);
     }
 

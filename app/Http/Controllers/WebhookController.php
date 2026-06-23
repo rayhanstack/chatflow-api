@@ -143,7 +143,7 @@ class WebhookController extends Controller
 
             // 7. Draft order if message looks like one
             if ($this->orderService->looksLikeOrder($normalized['text'])) {
-                $this->orderService->createDraftFromText($normalized['text'], $customer, $conversation);
+                $this->orderService->createFromAiParsed($normalized['text'], $customer, $conversation);
             }
         } catch (\Throwable $e) {
             Log::error("Webhook [{$platform}] failed", [
